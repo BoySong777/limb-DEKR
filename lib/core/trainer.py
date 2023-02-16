@@ -12,6 +12,7 @@ from __future__ import print_function
 import logging
 import os
 import time
+import torch
 
 from utils.utils import AverageMeter
 
@@ -32,7 +33,9 @@ def do_train(cfg, model, data_loader, loss_factory, optimizer, epoch,
     for i, (image, heatmap, mask, offset, offset_w) in enumerate(data_loader):
         data_time.update(time.time() - end)
 
-        pheatmap, poffset = model(image)
+        pheatmap, poffset, plimbs_offset = model(image)
+
+        poffset, plimbs_offset = deal(poffset, plimbs_offset)
 
         heatmap = heatmap.cuda(non_blocking=True)
         mask = mask.cuda(non_blocking=True)
@@ -95,3 +98,7 @@ def _get_loss_info(meter, loss_name):
     )
 
     return msg
+
+def deal(poffset, plimbs_offset):
+    B_norm = torch.stack([(2 * B[:, 0, :, :] / (W - 1)) - 1, (2 * B[:, 1, :, :] / (H - 1)) - 1], dim=1)
+    return poffset, plimbs_offset
