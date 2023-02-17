@@ -31,9 +31,11 @@ def build_dataset(cfg, is_train):
     heatmap_generator = HeatmapGenerator(
         cfg.DATASET.OUTPUT_SIZE, cfg.DATASET.NUM_JOINTS
     )
+    # 在偏移量生成器中增加一些肢体中心点相关的参数
     offset_generator = OffsetGenerator(
         cfg.DATASET.OUTPUT_SIZE, cfg.DATASET.OUTPUT_SIZE,
-        cfg.DATASET.NUM_JOINTS, cfg.DATASET.OFFSET_RADIUS
+        cfg.DATASET.NUM_JOINTS, cfg.DATASET.OFFSET_RADIUS,
+        cfg.DATASET.LIMBS_NUM, cfg.DATASET.LIMBS_CONTEXT, cfg.DATASET.LIMBS_KEYPOINTS_INDEX
     ) 
 
     dataset = eval(cfg.DATASET.DATASET)(

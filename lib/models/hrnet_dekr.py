@@ -154,7 +154,7 @@ class PoseHigherResolutionNet(nn.Module):
         offset_limbs_feature_layers = []
         offset_limbs_final_layer = []
 
-        for num in range(self.limbs_contxet):
+        for num in self.limbs_contxet:
             feature_conv = self._make_layer(
                 blocks_dict[layer_config['BLOCK']],
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
@@ -355,7 +355,7 @@ class PoseHigherResolutionNet(nn.Module):
             need_init_state_dict = {}
             for name, m in pretrained_state_dict.items():
                 if name.split('.')[0] in self.pretrained_layers \
-                   or self.pretrained_layers[0] is '*':
+                   or self.pretrained_layers[0] == '*':
                     if name in parameters_names or name in buffers_names:
                         if verbose:
                             logger.info(
