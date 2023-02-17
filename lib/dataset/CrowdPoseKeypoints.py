@@ -42,6 +42,7 @@ class CrowdPoseKeypoints(CrowdPoseDataset):
         self.limbs_context = cfg.DATASET.LIMBS_CONTEXT
         self.limbs_keypoints_index = cfg.DATASET.LIMBS_KEYPOINTS_INDEX
         self.keypoints_restore_index = cfg.DATASET.KEYPOINTS_RESTORE_INDEX
+        self.limbs_num = cfg.DATASET.LIMBS_NUM
     def __getitem__(self, idx):
         img, anno, image_info = super().__getitem__(idx)
 
@@ -53,13 +54,18 @@ class CrowdPoseKeypoints(CrowdPoseDataset):
         ]
         joints, area = self.get_joints(anno)
 
+        # 初始化变量
+        joints_list = [joints]
+        mask_list = [mask]
+
         if self.transforms:
             img, mask_list, joints_list, area = self.transforms(
                 img, [mask], [joints], area
             )
-
+        # 在生成热图的过程中由于只需要生成关键点和人体中心点的热图，所以不需要把肢体中心点传递过去。
         heatmap, ignored = self.heatmap_generator(
-            joints_list[0], self.sigma, self.center_sigma, self.bg_weight)
+            np.concatenate([joints_list[0][:, :self.num_joints, :], joints_list[0][:, self.num_joints_with_center+self.limbs_num-1:, :]], axis=1),
+            self.sigma, self.center_sigma, self.bg_weight)
         mask = mask_list[0]*ignored
 
         offset, offset_weight = self.offset_generator(
@@ -76,7 +82,7 @@ class CrowdPoseKeypoints(CrowdPoseDataset):
         num_people = len(anno)
         area = np.zeros((num_people, 1))
         # 让joints中增加5个点来存储肢体中心点
-        joints = np.zeros((num_people, self.num_joints_with_center+5, 3))
+        joints = np.zeros((num_people, self.num_joints_with_center+self.limbs_num, 3))
 
         for i, obj in enumerate(anno):
             joints[i, :self.num_joints, :3] = \
