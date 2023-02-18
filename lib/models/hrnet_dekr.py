@@ -299,10 +299,10 @@ class PoseHigherResolutionNet(nn.Module):
         # offset_feature = self.transition_offset(x)
 
         offset_feature_list = []
+        point = 0
         # 求出肢体中心点的输出特征和偏移量
         for idx, num in enumerate(self.limbs_contxet):
-            point = 0
-            offset_feature_list.append(self.offset_limbs_feature_layers[idx](limbs_feature[:, point, point + self.offset_prekpt * num]))
+            offset_feature_list.append(self.offset_limbs_feature_layers[idx](limbs_feature[:, point:point + self.offset_prekpt * num]))
             final_limbs_offset.append(self.offset_limbs_final_layer[idx](offset_feature_list[idx]))
             point = point + self.offset_prekpt * num
         # 合并特征图

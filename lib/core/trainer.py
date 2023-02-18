@@ -26,24 +26,25 @@ def do_train(cfg, model, data_loader, loss_factory, optimizer, epoch,
 
     heatmap_loss_meter = AverageMeter()
     offset_loss_meter = AverageMeter()
+    limbs_offset_loss_meter = AverageMeter()
 
     model.train()
 
     end = time.time()
-    for i, (image, heatmap, mask, offset, offset_w) in enumerate(data_loader):
+    for i, (image, heatmap, mask, offset, offset_w, limbs_offset, limbs_offset_w) in enumerate(data_loader):
         data_time.update(time.time() - end)
 
         pheatmap, poffset, plimbs_offset = model(image)
-
-        poffset, plimbs_offset = deal(poffset, plimbs_offset)
 
         heatmap = heatmap.cuda(non_blocking=True)
         mask = mask.cuda(non_blocking=True)
         offset = offset.cuda(non_blocking=True)
         offset_w = offset_w.cuda(non_blocking=True)
+        limbs_offset = limbs_offset.cuda(non_blocking=True)
+        limbs_offset_w = limbs_offset_w.cuda(non_blocking=True)
 
-        heatmap_loss, offset_loss = \
-            loss_factory(pheatmap, poffset, heatmap, mask, offset, offset_w)
+        heatmap_loss, offset_loss, limbs_offset_loss = \
+            loss_factory(pheatmap, poffset, plimbs_offset, heatmap, mask, offset, offset_w, limbs_offset, limbs_offset_w)
 
         loss = 0
         if heatmap_loss is not None:
@@ -52,6 +53,9 @@ def do_train(cfg, model, data_loader, loss_factory, optimizer, epoch,
         if offset_loss is not None:
             offset_loss_meter.update(offset_loss.item(), image.size(0))
             loss = loss + offset_loss
+        if limbs_offset_loss is not None:
+            limbs_offset_loss_meter.update(limbs_offset_loss.item(), image.size(0))
+            loss = loss + limbs_offset_loss
 
         optimizer.zero_grad()
         loss.backward()
@@ -65,14 +69,15 @@ def do_train(cfg, model, data_loader, loss_factory, optimizer, epoch,
                   'Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s)\t' \
                   'Speed: {speed:.1f} samples/s\t' \
                   'Data: {data_time.val:.3f}s ({data_time.avg:.3f}s)\t' \
-                  '{heatmaps_loss}{offset_loss}'.format(
+                  '{heatmaps_loss}{offset_loss}{limbs_offset_loss}'.format(
                       epoch, i, len(data_loader),
                       batch_time=batch_time,
                       speed=image.size(0)/batch_time.val,
                       data_time=data_time,
                       heatmaps_loss=_get_loss_info(
                           heatmap_loss_meter, 'heatmaps'),
-                      offset_loss=_get_loss_info(offset_loss_meter, 'offset')
+                      offset_loss=_get_loss_info(offset_loss_meter, 'offset'),
+                      limbs_offset_loss=_get_loss_info(limbs_offset_loss_meter, 'limbs_offset')
                   )
             logger.info(msg)
 
@@ -88,6 +93,11 @@ def do_train(cfg, model, data_loader, loss_factory, optimizer, epoch,
                 offset_loss_meter.val,
                 global_steps
             )
+            writer.add_scalar(
+                'train_limbs_offset_loss',
+                limbs_offset_loss_meter.val,
+                global_steps
+            )
             writer_dict['train_global_steps'] = global_steps + 1
 
 
@@ -98,7 +108,3 @@ def _get_loss_info(meter, loss_name):
     )
 
     return msg
-
-def deal(poffset, plimbs_offset):
-    B_norm = torch.stack([(2 * B[:, 0, :, :] / (W - 1)) - 1, (2 * B[:, 1, :, :] / (H - 1)) - 1], dim=1)
-    return poffset, plimbs_offset

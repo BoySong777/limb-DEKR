@@ -67,11 +67,11 @@ class CrowdPoseKeypoints(CrowdPoseDataset):
             np.concatenate([joints_list[0][:, :self.num_joints, :], joints_list[0][:, self.num_joints_with_center+self.limbs_num-1:, :]], axis=1),
             self.sigma, self.center_sigma, self.bg_weight)
         mask = mask_list[0]*ignored
-
-        offset, offset_weight = self.offset_generator(
+        # 让offset_generator也同时生成肢体中心点的偏移量和权重
+        offset, offset_weight, limbs_offset, limbs_offset_weight = self.offset_generator(
             joints_list[0], area)
 
-        return img, heatmap, mask, offset, offset_weight
+        return img, heatmap, mask, offset, offset_weight, limbs_offset, limbs_offset_weight
 
     def cal_area_2_torch(self, v):
         w = torch.max(v[:, :, 0], -1)[0] - torch.min(v[:, :, 0], -1)[0]

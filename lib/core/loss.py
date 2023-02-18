@@ -61,8 +61,10 @@ class MultiLossFactory(nn.Module):
 
         self.offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
         self.offset_loss_factor = cfg.LOSS.OFFSETS_LOSS_FACTOR
+        # 增加肢体偏移量的损失。
+        self.limbs_offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
 
-    def forward(self, output, poffset, heatmap, mask, offset, offset_w):
+    def forward(self, output, poffset, plimbs_offset, heatmap, mask, offset, offset_w, limbs_offset, limbs_offset_w):
         if self.heatmap_loss:
             heatmap_loss = self.heatmap_loss(output, heatmap, mask)
             heatmap_loss = heatmap_loss * self.heatmap_loss_factor
@@ -72,7 +74,12 @@ class MultiLossFactory(nn.Module):
         if self.offset_loss:
             offset_loss = self.offset_loss(poffset, offset, offset_w)
             offset_loss = offset_loss * self.offset_loss_factor
+            # 和关键点偏移量类似，获取肢体中心点的偏移量
+            limbs_offset_loss = self.limbs_offset_loss(plimbs_offset, limbs_offset, limbs_offset_w)
+            limbs_offset_loss = limbs_offset_loss * self.offset_loss_factor
+
         else:
             offset_loss = None
+            limbs_offset_loss = None
 
-        return heatmap_loss, offset_loss
+        return heatmap_loss, offset_loss, limbs_offset_loss
