@@ -96,8 +96,11 @@ def main():
     logger.info(cfg)
 
     # cudnn related setting
+    # 用于启用或禁用 cuDNN 库的基准测试模式。cuDNN 基准测试模式可根据硬件自动寻找最佳卷积算法来优化性能，但可能会导致性能不稳定。如果将 cudnn.benchmark 设置为 True，则 PyTorch 将在每次执行卷积操作时测量运行时间并选择最快的算法。
     cudnn.benchmark = cfg.CUDNN.BENCHMARK
+    # 用于启用或禁用 cuDNN 库的确定性模式。cuDNN 确定性模式可确保算法在相同的输入上产生相同的输出，这对于模型的可重复性和可复现性非常重要。
     torch.backends.cudnn.deterministic = cfg.CUDNN.DETERMINISTIC
+    # 用于启用或禁用 cuDNN 库。如果将 torch.backends.cudnn.enabled 设置为 True，则 PyTorch 将使用 cuDNN 加速卷积操作。
     torch.backends.cudnn.enabled = cfg.CUDNN.ENABLED
 
     model = eval('models.'+cfg.MODEL.NAME+'.get_pose_net')(

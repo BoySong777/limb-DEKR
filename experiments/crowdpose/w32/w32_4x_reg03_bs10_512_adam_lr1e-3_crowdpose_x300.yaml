@@ -97,7 +97,7 @@ TEST:
   DECREASE: 0.8
 RESCORE:
   VALID: True
-  MODEL_FILE: 'model/rescore/final_rescore_crowd_pose_kpt.pth'
+  MODEL_FILE: '/root/autodl-tmp/limb-DEKR/model/rescore/final_rescore_crowd_pose_kpt.pth'
 TRAIN:
   BEGIN_EPOCH: 0
   CHECKPOINT: ''

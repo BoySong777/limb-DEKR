@@ -11,6 +11,7 @@ from __future__ import division
 from __future__ import print_function
 
 import torch
+import torch.nn.functional as F
 
 from dataset.transforms import FLIP_CONFIG
 from utils.transforms import up_interpolate
@@ -57,10 +58,30 @@ def offset_to_pose(offset, flip=True, flip_index=None):
 
     return reg_poses
 
+def convert_offset(offset, limbs_offset, limbs_context):
+    _, c, w, h = offset.shape
+    # 先把相对偏移的偏移改成绝对位置
+    locate_map = offset_to_pose(limbs_offset, flip=False)
+    # 接下来把位置值的范围调整到[-1, 1] 公式为：（x,y）*2/((w,h)-1) - 1
+    param = [2.0/(w-1), 2.0/(h-1)]
+    param_tensor = torch.tensor(param).reshape(1, 2, 1, 1).repeat(1, 5, 1, 1).cuda(non_blocking=True)
+    locate_map = locate_map * param_tensor - 1.0
+    point = 0
+    # 对肢体逐一进行处理
+    for idx, num in enumerate(limbs_context):
+        # 把相对于肢体中心点的关键点偏移量挪到肢体中心点对应的人体中心点下，目的是为了方便关键点偏移量和肢体中心点偏移量相加。
+        offset[:, point:point+num*2] = F.grid_sample(offset[:, point:point+num*2],
+                                                          locate_map[:, idx*2:(idx+1)*2].permute(0, 2, 3, 1), mode='bilinear', padding_mode='zeros', align_corners=None)
+        # 肢体中心点偏移量和关键点偏移量相加，得到关键点相对于人体中心点的偏移量。
+        offset[:, point:point + num * 2] = offset[:, point:point+num*2] + limbs_offset[:, idx*2:(idx+1)*2].repeat(1, num, 1, 1)
+        point += num*2
 
+    return offset
 def get_multi_stage_outputs(cfg, model, image, with_flip=False):
     # forward
-    heatmap, offset = model(image)
+    heatmap, offset, limbs_offset = model(image)
+    # 将肢体中心点的偏移量和关键点的偏移量做拼接
+    offset = convert_offset(offset, limbs_offset, cfg.DATASET.LIMBS_CONTEXT)
     posemap = offset_to_pose(offset, flip=False)
 
     if with_flip:
@@ -68,7 +89,7 @@ def get_multi_stage_outputs(cfg, model, image, with_flip=False):
             flip_index_heat = FLIP_CONFIG['COCO_WITH_CENTER']
             flip_index_offset = FLIP_CONFIG['COCO']
         elif 'crowd_pose' in cfg.DATASET.DATASET:
-            flip_index_heat = FLIP_CONFIG['CROWDPOSE_WITH_CENTER']
+            flip_index_heat = FLIP_CONFIG['CROWDPOSE_WITH_ONLY_CENTER']
             flip_index_offset = FLIP_CONFIG['CROWDPOSE']
         else:
             raise ValueError('Please implement flip_index \
@@ -76,11 +97,12 @@ def get_multi_stage_outputs(cfg, model, image, with_flip=False):
 
         image = torch.flip(image, [3])
         image[:, :, :, :-3] = image[:, :, :, 3:]
-        heatmap_flip, offset_flip = model(image)
+        heatmap_flip, offset_flip, limbs_offset_flip = model(image)
 
         heatmap_flip = torch.flip(heatmap_flip, [3])
         heatmap = (heatmap + heatmap_flip[:, flip_index_heat, :, :])/2.0
 
+        offset_flip = convert_offset(offset_flip, limbs_offset_flip, cfg.DATASET.LIMBS_CONTEXT)
         posemap_flip = offset_to_pose(offset_flip, flip_index=flip_index_offset)
         posemap = (posemap + torch.flip(posemap_flip, [3]))/2.0
 
