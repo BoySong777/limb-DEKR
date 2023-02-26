@@ -95,7 +95,7 @@ class OffsetGenerator():
                             dtype=np.float32)
 
         # 处理关键点的顺序
-        temp_joints = joints[:, self.limbs_keypoints_index, :]
+        # temp_joints = joints[:, self.limbs_keypoints_index, :]
         # 进行肢体偏移量的处理
         for person_id, p in enumerate(joints):
             ct_x = int(p[-1, 0])
@@ -128,43 +128,77 @@ class OffsetGenerator():
                             limbs_weight_map[idx * 2 + 1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
                             area_map[pos_y, pos_x] = area[person_id]
         # 肢体偏移量处理完毕
-        # 开始处理关键点偏移量，关键点偏移量是相对于肢体中心点的。
-        for person_id, p in enumerate(joints):
-            point = 0
-            # 循环每个人的肢体中心点
-            for limb_id, kpt_num in enumerate(self.limbs_context):
-                ct_x = int(p[self.num_joints_without_center+limb_id, 0])
-                ct_y = int(p[self.num_joints_without_center+limb_id, 1])
-                ct_v = int(p[self.num_joints_without_center+limb_id, 2])
-                if ct_v < 1 or ct_x < 0 or ct_y < 0 \
-                        or ct_x >= self.output_w or ct_y >= self.output_h:
-                    continue
-                # 循环每个肢体中心点对应的关键点
-                for idx, pt in enumerate(temp_joints[person_id, point:point+kpt_num]):
-                    if pt[2] > 0:
-                        x, y = pt[0], pt[1]
-                        if x < 0 or y < 0 or \
-                                x >= self.output_w or y >= self.output_h:
-                            continue
 
-                        start_x = max(int(ct_x - self.radius), 0)
-                        start_y = max(int(ct_y - self.radius), 0)
-                        end_x = min(int(ct_x + self.radius), self.output_w)
-                        end_y = min(int(ct_y + self.radius), self.output_h)
-                        # final_idx 表示在全部关键点里，当前关键点的索引
-                        final_idx = point + idx
-                        for pos_x in range(start_x, end_x):
-                            for pos_y in range(start_y, end_y):
-                                offset_x = pos_x - x
-                                offset_y = pos_y - y
-                                if offset_map[final_idx * 2, pos_y, pos_x] != 0 \
-                                        or offset_map[final_idx * 2 + 1, pos_y, pos_x] != 0:
-                                    if area_map[pos_y, pos_x] < area[person_id]:
-                                        continue
-                                offset_map[final_idx * 2, pos_y, pos_x] = offset_x
-                                offset_map[final_idx * 2 + 1, pos_y, pos_x] = offset_y
-                                weight_map[final_idx * 2, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
-                                weight_map[final_idx * 2 + 1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
-                                area_map[pos_y, pos_x] = area[person_id]
-                point += kpt_num
+        for person_id, p in enumerate(joints):
+            ct_x = int(p[-1, 0])
+            ct_y = int(p[-1, 1])
+            ct_v = int(p[-1, 2])
+            if ct_v < 1 or ct_x < 0 or ct_y < 0 \
+                    or ct_x >= self.output_w or ct_y >= self.output_h:
+                continue
+
+            for idx, pt in enumerate(p[:self.num_joints_without_center]):
+                if pt[2] > 0:
+                    x, y = pt[0], pt[1]
+                    if x < 0 or y < 0 or \
+                            x >= self.output_w or y >= self.output_h:
+                        continue
+
+                    start_x = max(int(ct_x - self.radius), 0)
+                    start_y = max(int(ct_y - self.radius), 0)
+                    end_x = min(int(ct_x + self.radius), self.output_w)
+                    end_y = min(int(ct_y + self.radius), self.output_h)
+
+                    for pos_x in range(start_x, end_x):
+                        for pos_y in range(start_y, end_y):
+                            offset_x = pos_x - x
+                            offset_y = pos_y - y
+                            if offset_map[idx*2, pos_y, pos_x] != 0 \
+                                    or offset_map[idx*2+1, pos_y, pos_x] != 0:
+                                if area_map[pos_y, pos_x] < area[person_id]:
+                                    continue
+                            offset_map[idx*2, pos_y, pos_x] = offset_x
+                            offset_map[idx*2+1, pos_y, pos_x] = offset_y
+                            weight_map[idx*2, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
+                            weight_map[idx*2+1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
+                            area_map[pos_y, pos_x] = area[person_id]
+        # # 开始处理关键点偏移量，关键点偏移量是相对于肢体中心点的。
+        # for person_id, p in enumerate(joints):
+        #     point = 0
+        #     # 循环每个人的肢体中心点
+        #     for limb_id, kpt_num in enumerate(self.limbs_context):
+        #         ct_x = int(p[self.num_joints_without_center+limb_id, 0])
+        #         ct_y = int(p[self.num_joints_without_center+limb_id, 1])
+        #         ct_v = int(p[self.num_joints_without_center+limb_id, 2])
+        #         if ct_v < 1 or ct_x < 0 or ct_y < 0 \
+        #                 or ct_x >= self.output_w or ct_y >= self.output_h:
+        #             continue
+        #         # 循环每个肢体中心点对应的关键点
+        #         for idx, pt in enumerate(temp_joints[person_id, point:point+kpt_num]):
+        #             if pt[2] > 0:
+        #                 x, y = pt[0], pt[1]
+        #                 if x < 0 or y < 0 or \
+        #                         x >= self.output_w or y >= self.output_h:
+        #                     continue
+        #
+        #                 start_x = max(int(ct_x - self.radius), 0)
+        #                 start_y = max(int(ct_y - self.radius), 0)
+        #                 end_x = min(int(ct_x + self.radius), self.output_w)
+        #                 end_y = min(int(ct_y + self.radius), self.output_h)
+        #                 # final_idx 表示在全部关键点里，当前关键点的索引
+        #                 final_idx = point + idx
+        #                 for pos_x in range(start_x, end_x):
+        #                     for pos_y in range(start_y, end_y):
+        #                         offset_x = pos_x - x
+        #                         offset_y = pos_y - y
+        #                         if offset_map[final_idx * 2, pos_y, pos_x] != 0 \
+        #                                 or offset_map[final_idx * 2 + 1, pos_y, pos_x] != 0:
+        #                             if area_map[pos_y, pos_x] < area[person_id]:
+        #                                 continue
+        #                         offset_map[final_idx * 2, pos_y, pos_x] = offset_x
+        #                         offset_map[final_idx * 2 + 1, pos_y, pos_x] = offset_y
+        #                         weight_map[final_idx * 2, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
+        #                         weight_map[final_idx * 2 + 1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
+        #                         area_map[pos_y, pos_x] = area[person_id]
+        #         point += kpt_num
         return offset_map, weight_map, limbs_offset_map, limbs_weight_map

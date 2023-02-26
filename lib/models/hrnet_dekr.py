@@ -82,6 +82,7 @@ class PoseHigherResolutionNet(nn.Module):
 
         # 每个肢体内各含有多少关键点
         self.limbs_contxet = cfg.DATASET.LIMBS_CONTEXT
+        self.keypoints_restore_index = cfg.DATASET.KEYPOINTS_RESTORE_INDEX
 
         self.offset_limbs_feature_layers, self.offset_limbs_final_layer = \
             self._make_limbs_separete_regression_head(config_offset)
@@ -261,6 +262,51 @@ class PoseHigherResolutionNet(nn.Module):
 
         return nn.Sequential(*modules), num_inchannels
 
+    def offset_to_loc(self, offset):
+        n, c, w, h = offset.shape
+        # 构建位置坐标
+        shifts_y = torch.arange(
+            0, w, step=1,
+            dtype=torch.float32, device=offset.device
+        )
+        shifts_x = torch.arange(
+            0, h, step=1,
+            dtype=torch.float32, device=offset.device
+        )
+        shift_x, shift_y = torch.meshgrid(shifts_x, shifts_y, indexing='xy')
+        localtion = torch.stack((shift_x, shift_y))
+        localtion = localtion.repeat(int(c / 2), 1, 1)
+        localtion = localtion.view(1, c, w, h)
+
+        return localtion - offset
+
+    # 在模型中就把关键点偏移量处理好
+    def convert_offset(self, limbs_offset, offset):
+        n, c, w, h = offset.shape
+        # 先把相对偏移的偏移改成绝对位置
+        locate_map = self.offset_to_loc(limbs_offset)
+        # 接下来把位置值的范围调整到[-1, 1] 公式为：（x,y）*2/((w,h)-1) - 1
+        param = [2.0 / (h - 1), 2.0 / (w - 1)]
+        param_tensor = torch.tensor(param).reshape(1, 2, 1, 1).repeat(1, len(self.limbs_contxet), 1, 1).cuda(non_blocking=True)
+        locate_map = locate_map * param_tensor - 1.0
+        point = 0
+        final_offset_list = []
+        # 对肢体逐一进行处理
+        for idx, num in enumerate(self.limbs_contxet):
+            # 把相对于肢体中心点的关键点偏移量挪到肢体中心点对应的人体中心点下，目的是为了方便关键点偏移量和肢体中心点偏移量相加。
+            # 肢体中心点偏移量和关键点偏移量相加，得到关键点相对于人体中心点的偏移量。
+            final_offset_list.append(
+                F.grid_sample(offset[:, point:point + num * 2],
+                                                             locate_map[:, idx * 2:(idx + 1) * 2].permute(0, 2, 3, 1),
+                                                             mode='bilinear', padding_mode='zeros', align_corners=None) \
+                                               + limbs_offset[:, idx * 2:(idx + 1) * 2].repeat(1, num, 1, 1)
+            )
+
+            point += num * 2
+        final_offset = torch.cat(final_offset_list, dim=1).view(n, int(c / 2), 2, w, h)[:, self.keypoints_restore_index]\
+            .view(n, c, w, h)
+        return final_offset
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -315,6 +361,8 @@ class PoseHigherResolutionNet(nn.Module):
                         offset_feature[:,j*self.offset_prekpt:(j+1)*self.offset_prekpt])))
         offset = torch.cat(final_offset, dim=1)
         limbs_offset = torch.cat(final_limbs_offset, dim=1)
+
+        # offset_done = self.convert_offset(limbs_offset, offset)
         return heatmap, offset, limbs_offset
 
     def init_weights(self, pretrained='', verbose=True):
