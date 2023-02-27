@@ -362,8 +362,8 @@ class PoseHigherResolutionNet(nn.Module):
         offset = torch.cat(final_offset, dim=1)
         limbs_offset = torch.cat(final_limbs_offset, dim=1)
 
-        # offset_done = self.convert_offset(limbs_offset, offset)
-        return heatmap, offset, limbs_offset
+        offset_done = self.convert_offset(limbs_offset, offset)
+        return heatmap, offset_done, limbs_offset
 
     def init_weights(self, pretrained='', verbose=True):
         logger.info('=> init weights from normal distribution')
