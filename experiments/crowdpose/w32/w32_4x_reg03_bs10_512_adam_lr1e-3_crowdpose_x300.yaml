@@ -23,7 +23,7 @@ DATASET:
   MAX_TRANSLATE: 40
   MIN_SCALE: 0.75
   NUM_JOINTS: 14
-  ROOT: '/root/autodl-fs/crowdpose'
+  ROOT: '/root/autodl-tmp/DEKR/data/crowdpose'
   TEST: test
   TRAIN: trainval
   OFFSET_RADIUS: 4
@@ -34,6 +34,7 @@ DATASET:
   LIMBS_CONTEXT: [3, 3, 3, 3, 2]
   LIMBS_KEYPOINTS_INDEX: [0, 2, 4, 1, 3, 5, 6, 8, 10, 7, 9, 11, 12, 13]
   KEYPOINTS_RESTORE_INDEX: [0, 3, 1, 4, 2, 5, 6, 9, 7, 10, 8, 11, 12, 13]
+  KEYPOINTS_SIGMAS: [.079, .079, .072, .072, .062, .062, .107, .107, .087, .087, .089, .089, .079, .079]
 LOSS:
   WITH_HEATMAPS_LOSS: True
   HEATMAPS_LOSS_FACTOR: 1.0
@@ -82,7 +83,7 @@ MODEL:
   INIT_WEIGHTS: True
   NAME: hrnet_dekr
   NUM_JOINTS: 14
-  PRETRAINED: 'model/imagenet/hrnet_w32-36af842e.pth'
+  PRETRAINED: '../DEKR/model/imagenet/hrnet_w32-36af842e.pth'
 TEST:
   FLIP_TEST: True
   IMAGES_PER_GPU: 1
@@ -97,7 +98,7 @@ TEST:
   DECREASE: 0.8
 RESCORE:
   VALID: True
-  MODEL_FILE: '/root/autodl-tmp/limb-DEKR/model/rescore/final_rescore_crowd_pose_kpt.pth'
+  MODEL_FILE: '/root/autodl-tmp/DEKR/model/rescore/final_rescore_crowd_pose_kpt.pth'
 TRAIN:
   BEGIN_EPOCH: 0
   CHECKPOINT: ''
