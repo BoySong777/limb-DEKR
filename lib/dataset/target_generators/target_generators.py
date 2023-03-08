@@ -79,13 +79,15 @@ class OffsetGenerator():
         self.limbs_context = limbs_context
         self.limbs_keypoints_index = limbs_keypoints_index
 
-    def __call__(self, joints, area):
+    def __call__(self, joints, area, area_wh):
         assert joints.shape[1] == self.num_joints_with_center + self.limbs_num, \
             'the number of joints should be 18, 17 keypoints + 1 center joint.'
 
         offset_map = np.zeros((self.num_joints_without_center*2, self.output_h, self.output_w),
                               dtype=np.float32)
         weight_map = np.zeros((self.num_joints_without_center*2, self.output_h, self.output_w),
+                              dtype=np.float32)
+        area_wh_map = np.zeros((self.num_joints_without_center * 2, self.output_h, self.output_w),
                               dtype=np.float32)
         limbs_offset_map = np.zeros((self.limbs_num * 2, self.output_h, self.output_w),
                               dtype=np.float32)
@@ -161,6 +163,8 @@ class OffsetGenerator():
                             offset_map[idx*2+1, pos_y, pos_x] = offset_y
                             weight_map[idx*2, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
                             weight_map[idx*2+1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
+                            area_wh_map[idx * 2, pos_y, pos_x] = area_wh[person_id]
+                            area_wh_map[idx * 2 + 1, pos_y, pos_x] = area_wh[person_id]
                             area_map[pos_y, pos_x] = area[person_id]
         # # 开始处理关键点偏移量，关键点偏移量是相对于肢体中心点的。
         # for person_id, p in enumerate(joints):
@@ -201,4 +205,4 @@ class OffsetGenerator():
         #                         weight_map[final_idx * 2 + 1, pos_y, pos_x] = 1. / np.sqrt(area[person_id])
         #                         area_map[pos_y, pos_x] = area[person_id]
         #         point += kpt_num
-        return offset_map, weight_map, limbs_offset_map, limbs_weight_map
+        return offset_map, weight_map, area_wh_map, limbs_offset_map, limbs_weight_map

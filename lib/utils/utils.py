@@ -102,8 +102,8 @@ def save_checkpoint(states, is_best, output_dir,
             states['best_state_dict'],
             os.path.join(output_dir, 'model_best.pth.tar')
         )
-    # 每30代保存一下模型
-    if states['epoch'] % 50 == 0:
+    # 每50代保存一下模型
+    if states['epoch'] % 50 == 0 or (states['epoch'] + 30) % 50 == 0:
         torch.save(
             states['best_state_dict'],
             os.path.join(output_dir, 'model_stage_{}.pth.tar'.format(states['epoch']))

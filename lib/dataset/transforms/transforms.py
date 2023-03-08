@@ -22,10 +22,10 @@ class Compose(object):
     def __init__(self, transforms):
         self.transforms = transforms
 
-    def __call__(self, image, mask, joints, area):
+    def __call__(self, image, mask, joints, area, area_wh):
         for t in self.transforms:
-            image, mask, joints, area = t(image, mask, joints, area)
-        return image, mask, joints, area
+            image, mask, joints, area, area_wh = t(image, mask, joints, area, area_wh)
+        return image, mask, joints, area, area_wh
 
     def __repr__(self):
         format_string = self.__class__.__name__ + "("
@@ -37,8 +37,8 @@ class Compose(object):
 
 
 class ToTensor(object):
-    def __call__(self, image, mask, joints, area):
-        return F.to_tensor(image), mask, joints, area
+    def __call__(self, image, mask, joints, area, area_wh):
+        return F.to_tensor(image), mask, joints, area, area_wh
 
 
 class Normalize(object):
@@ -46,9 +46,9 @@ class Normalize(object):
         self.mean = mean
         self.std = std
 
-    def __call__(self, image, mask, joints, area):
+    def __call__(self, image, mask, joints, area, area_wh):
         image = F.normalize(image, mean=self.mean, std=self.std)
-        return image, mask, joints, area
+        return image, mask, joints, area, area_wh
 
 
 class RandomHorizontalFlip(object):
@@ -58,7 +58,7 @@ class RandomHorizontalFlip(object):
         self.output_size = output_size if isinstance(output_size, list) \
             else [output_size]
 
-    def __call__(self, image, mask, joints, area):
+    def __call__(self, image, mask, joints, area, area_wh):
         assert isinstance(mask, list)
         assert isinstance(joints, list)
         assert len(mask) == len(joints)
@@ -71,7 +71,7 @@ class RandomHorizontalFlip(object):
                 joints[i] = joints[i][:, self.flip_index]
                 joints[i][:, :, 0] = _output_size - joints[i][:, :, 0] - 1
 
-        return image, mask, joints, area
+        return image, mask, joints, area, area_wh
 
 
 class RandomAffineTransform(object):
@@ -127,7 +127,7 @@ class RandomAffineTransform(object):
         return np.dot(np.concatenate(
             (joints, joints[:, 0:1]*0+1), axis=1), mat.T).reshape(shape)
 
-    def __call__(self, image, mask, joints, area):
+    def __call__(self, image, mask, joints, area, area_wh):
         assert isinstance(mask, list)
         assert isinstance(joints, list)
         assert len(mask) == len(joints)
@@ -176,8 +176,9 @@ class RandomAffineTransform(object):
         )
         mat_input = mat_input[:2]
         area = area*final_scale
+        area_wh = area_wh*final_scale
         image = cv2.warpAffine(
             image, mat_input, (self.input_size, self.input_size)
         )
 
-        return image, mask, joints, area
+        return image, mask, joints, area, area_wh

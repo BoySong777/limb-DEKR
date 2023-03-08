@@ -54,7 +54,7 @@ class OKSLoss(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def oks_loss(self, pred, gt, weights, sigmas):
+    def oks_loss(self, pred, gt, weights, offset_area, sigmas, beta=1. / 9):
         '''
 
         Args:
@@ -68,26 +68,27 @@ class OKSLoss(nn.Module):
         '''
         sigmas = torch.tensor(sigmas, device=gt.device)
         # 计算关键点之间的欧几里得距离
-        dx = (pred[:, 0::2] - gt[:, 0::2])**2
-        dy = (pred[:, 1::2] - gt[:, 1::2])**2
-        dist = dx + dy
-        # 求得关键点归一化因子的平方，这里为什么乘以2，可能是因为坐标有两个值（x和y）
-        vars = (sigmas * 2) ** 2
+        dist = torch.abs(pred - gt)
+        cond = dist < beta
+        # loss = (1 - torch.exp(- l1_loss * weight)) * torch.where(cond, 0.5*l1_loss**2/beta, l1_loss-0.5*beta)
+        dist = torch.where(cond, 0.5 * dist ** 2 / beta, dist - 0.5 * beta)
+        vars = sigmas.unsqueeze(-1).repeat(1, 2).flatten()
         vars = vars[None, :, None, None]
         # 这里乘以weights[:, 0::2] > 0的目的是为了让groundtrue中未标注的点不参与loss，也就是为了实现oks公式中的δ（v_n > 0）
-        oks = torch.mul(torch.exp(-dist/(1.0/weights[:, 0::2]+np.spacing(1))/vars/2.0), weights[:, 0::2] > 0).sum(axis=1)
+        oks = torch.mul(torch.exp(-dist/torch.sqrt(offset_area + np.spacing(1))/vars),
+                        weights > 0).sum(axis=1)
         # 除以关键点的数量，平均一下
-        w = (weights[:, 0::2] > 0).sum(axis=1)
+        w = (weights > 0).sum(axis=1)
         # 这个num_pos是人数，也就是gt中一共被标记了多少个人，实际图片中的人在gt中被标记了64次，
         num_pos = torch.nonzero(w).size()[0]
         oks = oks / (w + np.spacing(1))
         loss = (w > 0).type(torch.float) - oks
         return loss, num_pos
 
-    def forward(self, pred, gt, weights, sigmas):
+    def forward(self, pred, gt, weights, offset_area, sigmas):
         assert pred.size() == gt.size()
         # num_pos = torch.nonzero(weights > 0).size()[0]
-        loss, num_pos = self.oks_loss(pred, gt, weights, sigmas)
+        loss, num_pos = self.oks_loss(pred, gt, weights, offset_area, sigmas)
         if num_pos == 0:
             num_pos = 1.
         loss = loss.sum() / num_pos
@@ -130,13 +131,13 @@ class MultiLossFactory(nn.Module):
         self.heatmap_loss_factor = cfg.LOSS.HEATMAPS_LOSS_FACTOR
 
         # self.offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
-        # self.offset_loss = OKSLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
-        self.offset_loss = OffsetsLossAddWeight() if cfg.LOSS.WITH_OFFSETS_LOSS else None
+        self.offset_loss = OKSLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
+        # self.offset_loss = OffsetsLossAddWeight() if cfg.LOSS.WITH_OFFSETS_LOSS else None
         self.offset_loss_factor = cfg.LOSS.OFFSETS_LOSS_FACTOR
         # 增加肢体偏移量的损失。
         self.limbs_offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
 
-    def forward(self, output, poffset, plimbs_offset, heatmap, mask, offset, offset_w, limbs_offset, limbs_offset_w):
+    def forward(self, output, poffset, plimbs_offset, heatmap, mask, offset, offset_w, offset_area, limbs_offset, limbs_offset_w):
         if self.heatmap_loss:
             heatmap_loss = self.heatmap_loss(output, heatmap, mask)
             heatmap_loss = heatmap_loss * self.heatmap_loss_factor
@@ -145,7 +146,7 @@ class MultiLossFactory(nn.Module):
         
         if self.offset_loss:
            # offset_loss = self.offset_loss(poffset, offset, offset_w)
-            offset_loss = self.offset_loss(poffset, offset, offset_w)
+            offset_loss = self.offset_loss(poffset, offset, offset_w, offset_area, self.sigmas)
             offset_loss = offset_loss * self.offset_loss_factor
             # 和关键点偏移量类似，获取肢体中心点的偏移量
             limbs_offset_loss = self.limbs_offset_loss(plimbs_offset, limbs_offset, limbs_offset_w)
