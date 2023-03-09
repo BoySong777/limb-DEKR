@@ -74,21 +74,13 @@ class OKSLoss(nn.Module):
         dist = torch.where(cond, 0.5 * dist ** 2 / beta, dist - 0.5 * beta)
         vars = sigmas.unsqueeze(-1).repeat(1, 2).flatten()
         vars = vars[None, :, None, None]
-        # 这里乘以weights[:, 0::2] > 0的目的是为了让groundtrue中未标注的点不参与loss，也就是为了实现oks公式中的δ（v_n > 0）
-        oks = torch.mul(torch.exp(-dist/torch.sqrt(offset_area + np.spacing(1))/vars),
-                        weights > 0).sum(axis=1)
-        # 除以关键点的数量，平均一下
-        w = (weights > 0).sum(axis=1)
-        # 这个num_pos是人数，也就是gt中一共被标记了多少个人，实际图片中的人在gt中被标记了64次，
-        num_pos = torch.nonzero(w).size()[0]
-        oks = oks / (w + np.spacing(1))
-        loss = (w > 0).type(torch.float) - oks
-        return loss, num_pos
+        loss = 1 - torch.exp(-dist * weights / vars)
+        return loss
 
     def forward(self, pred, gt, weights, offset_area, sigmas):
         assert pred.size() == gt.size()
-        # num_pos = torch.nonzero(weights > 0).size()[0]
-        loss, num_pos = self.oks_loss(pred, gt, weights, offset_area, sigmas)
+        num_pos = torch.nonzero(weights > 0).size()[0]
+        loss = self.oks_loss(pred, gt, weights, offset_area, sigmas)
         if num_pos == 0:
             num_pos = 1.
         loss = loss.sum() / num_pos
