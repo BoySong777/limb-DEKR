@@ -110,12 +110,12 @@ class OffsetsLossWithKptWeight(nn.Module):
         num_pos = torch.nonzero(weights > 0).size()[0]
         sigmas = torch.tensor(sigmas, device=gt.device)
         vars = sigmas.unsqueeze(-1).repeat(1, 2).flatten()
-        vars = vars[None, :, None, None]
+        vars = vars[None, :, None, None] * 14
 
-        loss = self.smooth_l1_loss(pred, gt) * weights * vars
+        loss = self.smooth_l1_loss(pred, gt) * weights / vars
         if num_pos == 0:
             num_pos = 1.
-        loss = loss.sum() / num_pos * 14.0
+        loss = loss.sum() / num_pos
         return loss
 
 
