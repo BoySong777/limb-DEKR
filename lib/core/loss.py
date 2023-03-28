@@ -223,7 +223,7 @@ class MultiLossFactory(nn.Module):
         # 增加肢体偏移量的损失。
         self.limbs_offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
 
-    def forward(self, output, poffset, plimbs_offset, heatmap, mask, offset, offset_w, offset_area, limbs_offset, limbs_offset_w):
+    def forward(self, output, poffset, plimbs_offset, heatmap, mask, offset, offset_w, limbs_offset, limbs_offset_w):
         if self.heatmap_loss:
             heatmap_loss = self.heatmap_loss(output, heatmap, mask)
             heatmap_loss = heatmap_loss * self.heatmap_loss_factor
