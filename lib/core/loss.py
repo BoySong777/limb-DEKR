@@ -30,6 +30,39 @@ class HeatmapLoss(nn.Module):
         return loss
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, preds, targets, mask):
+        """
+        preds: 模型预测的热图，shape 为 (batch_size, N, H, W)
+        targets: 热图的真实值，shape 为 (batch_size, N, H, W)
+        mask: 关键点的 mask，shape 为 (batch_size, 1, H, W)
+        """
+        # 计算 BCE Loss
+        bce_loss = nn.BCEWithLogitsLoss(reduction='none')
+        loss = bce_loss(preds, targets)
+
+        # 计算每个像素点的权重
+        weights = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+        weights = weights * (1 - preds) ** self.gamma
+
+        # 将 mask 扩展到与 loss 相同的形状
+        mask = mask.expand_as(loss)
+
+        # 只计算 mask 为 1 的像素点的损失和权重
+        loss = loss * mask
+        weights = weights * mask
+
+        # 按权重对损失进行加权平均
+        loss = torch.sum(loss) / torch.sum(mask)
+        weights = torch.sum(weights) / torch.sum(mask)
+        loss = loss * weights
+
+        return loss
 # FocalHeatmapLoss代码来源于mmpose
 class FocalHeatmapLoss(nn.Module):
     def __init__(self, alpha=2, beta=4):
@@ -178,10 +211,12 @@ class MultiLossFactory(nn.Module):
         self.sigmas = cfg.DATASET.KEYPOINTS_SIGMAS
 
         self.heatmap_loss = HeatmapLoss() if cfg.LOSS.WITH_HEATMAPS_LOSS else None
+        # self.heatmap_loss = FocalLoss() if cfg.LOSS.WITH_HEATMAPS_LOSS else None
+
         self.heatmap_loss_factor = cfg.LOSS.HEATMAPS_LOSS_FACTOR
 
-        # self.offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
-        self.offset_loss = OffsetsLossWithKptWeight() if cfg.LOSS.WITH_OFFSETS_LOSS else None
+        self.offset_loss = OffsetsLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
+        # self.offset_loss = OffsetsLossWithKptWeight() if cfg.LOSS.WITH_OFFSETS_LOSS else None
         # self.offset_loss = OKSLoss() if cfg.LOSS.WITH_OFFSETS_LOSS else None
         # self.offset_loss = OffsetsLossAddWeight() if cfg.LOSS.WITH_OFFSETS_LOSS else None
         self.offset_loss_factor = cfg.LOSS.OFFSETS_LOSS_FACTOR
@@ -196,7 +231,7 @@ class MultiLossFactory(nn.Module):
             heatmap_loss = None
         
         if self.offset_loss:
-            offset_loss = self.offset_loss(poffset, offset, offset_w, self.sigmas)
+            offset_loss = self.offset_loss(poffset, offset, offset_w)
             # offset_loss = self.offset_loss(poffset, offset, offset_w, offset_area, self.sigmas)
             offset_loss = offset_loss * self.offset_loss_factor
             # 和关键点偏移量类似，获取肢体中心点的偏移量

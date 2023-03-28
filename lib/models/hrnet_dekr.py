@@ -19,6 +19,9 @@ import torch.nn.functional as F
 
 from .conv_module import HighResolutionModule
 from .conv_block import BasicBlock, Bottleneck, AdaptBlock
+from .od_conv_block import BasicBlock as ODBasicBlock
+from .od_conv_block import Bottleneck as ODBottleneck
+from .odconv import ODConv2d
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -26,7 +29,10 @@ logger = logging.getLogger(__name__)
 blocks_dict = {
     'BASIC': BasicBlock,
     'BOTTLENECK': Bottleneck,
-    'ADAPTIVE': AdaptBlock
+    'ADAPTIVE': AdaptBlock,
+    'OD_BASIC': ODBasicBlock,
+    'OD_BOTTLENECK': ODBottleneck
+
 }
 
 
@@ -86,10 +92,14 @@ class PoseHigherResolutionNet(nn.Module):
 
         self.offset_limbs_feature_layers, self.offset_limbs_final_layer = \
             self._make_limbs_separete_regression_head(config_offset)
+        # 增加一个层，用于获取肢体间相互关系
+        self.get_limb_relation_layer = self._make_layer(blocks_dict['OD_BASIC'], self.num_joints*self.offset_prekpt, 2, 1)
 
     def _make_transition_for_head(self, inplanes, outplanes):
         transition_layer = [
-            nn.Conv2d(inplanes, outplanes, 1, 1, 0, bias=False),
+            # 更改第一步，改变heatmap的特征, 改Conv2d变ODConv2d
+            # nn.Conv2d(inplanes, outplanes, 1, 1, 0, bias=False),
+            ODConv2d(inplanes, outplanes, 1, 1, 0),
             nn.BatchNorm2d(outplanes),
             nn.ReLU(True)
         ]
@@ -125,15 +135,15 @@ class PoseHigherResolutionNet(nn.Module):
         for _ in range(self.num_joints):
             feature_conv = self._make_layer(
                 blocks_dict[layer_config['BLOCK']],
-                layer_config['NUM_CHANNELS_PERKPT'],
-                layer_config['NUM_CHANNELS_PERKPT'],
+                layer_config['NUM_CHANNELS_PERKPT'] + 2,
+                layer_config['NUM_CHANNELS_PERKPT'] + 2,
                 layer_config['NUM_BLOCKS'],
                 dilation=layer_config['DILATION_RATE']
             )
             offset_feature_layers.append(feature_conv)
 
             offset_conv = nn.Conv2d(
-                in_channels=layer_config['NUM_CHANNELS_PERKPT'],
+                in_channels=layer_config['NUM_CHANNELS_PERKPT'] + 2,
                 out_channels=2,
                 kernel_size=self.spec.FINAL_CONV_KERNEL,
                 stride=1,
@@ -354,11 +364,16 @@ class PoseHigherResolutionNet(nn.Module):
         # 合并特征图
         offset_feature = torch.cat(offset_feature_list, dim=1)
 
+        # 获取肢体间相互关系
+        offset_common_feature = self.get_limb_relation_layer(offset_feature)
+
+
         for j in range(self.num_joints):
             final_offset.append(
                 self.offset_final_layer[j](
                     self.offset_feature_layers[j](
-                        offset_feature[:,j*self.offset_prekpt:(j+1)*self.offset_prekpt])))
+                        torch.cat([offset_feature[:, j*self.offset_prekpt:(j+1)*self.offset_prekpt],
+                                   offset_common_feature], dim=1))))
         offset = torch.cat(final_offset, dim=1)
         limbs_offset = torch.cat(final_limbs_offset, dim=1)
 

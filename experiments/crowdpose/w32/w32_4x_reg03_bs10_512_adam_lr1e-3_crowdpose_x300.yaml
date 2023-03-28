@@ -71,7 +71,7 @@ MODEL:
       - SUM
       - SUM
     HEAD_HEATMAP:
-      BLOCK: BASIC
+      BLOCK: OD_BASIC
       NUM_BLOCKS: 1
       NUM_CHANNELS: 32
       DILATION_RATE: 1
