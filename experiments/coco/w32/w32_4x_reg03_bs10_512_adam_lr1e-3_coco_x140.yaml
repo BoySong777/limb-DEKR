@@ -23,13 +23,17 @@ DATASET:
   MAX_TRANSLATE: 40
   MIN_SCALE: 0.75
   NUM_JOINTS: 17
-  ROOT: 'data/coco'
+  ROOT: '/root/autodl-fs/coco'
   TEST: val2017
   TRAIN: train2017
   OFFSET_RADIUS: 4
   SIGMA: 2.0
   CENTER_SIGMA: 4.0
   BG_WEIGHT: 0.1
+  LIMBS_NUM: 5
+  LIMBS_CONTEXT: [ 5, 3, 3, 3, 3 ]
+  LIMBS_KEYPOINTS_INDEX: [ 0, 1, 2, 3, 4, 5, 7, 9, 6, 8, 10, 11, 13, 15, 12, 14, 16]
+  KEYPOINTS_RESTORE_INDEX: [ 0, 1, 2, 3, 4, 5, 8, 6, 9, 7, 10, 11, 14, 12, 15, 13, 16]
 LOSS:
   WITH_HEATMAPS_LOSS: True
   HEATMAPS_LOSS_FACTOR: 1.0
@@ -66,7 +70,7 @@ MODEL:
       - SUM
       - SUM
     HEAD_HEATMAP:
-      BLOCK: BASIC
+      BLOCK: OD_BASIC
       NUM_BLOCKS: 1
       NUM_CHANNELS: 32
       DILATION_RATE: 1

@@ -92,7 +92,7 @@ def get_multi_stage_outputs(cfg, model, image, with_flip=False):
 
     if with_flip:
         if 'coco' in cfg.DATASET.DATASET:
-            flip_index_heat = FLIP_CONFIG['COCO_WITH_CENTER']
+            flip_index_heat = FLIP_CONFIG['COCO_WITH_ONLY_CENTER']
             flip_index_offset = FLIP_CONFIG['COCO']
         elif 'crowd_pose' in cfg.DATASET.DATASET:
             flip_index_heat = FLIP_CONFIG['CROWDPOSE_WITH_ONLY_CENTER']
