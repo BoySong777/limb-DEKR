@@ -23,7 +23,7 @@ DATASET:
   MAX_TRANSLATE: 40
   MIN_SCALE: 0.75
   NUM_JOINTS: 14
-  ROOT: '/root/autodl-tmp/DEKR/data/crowdpose'
+  ROOT: '/root/autodl-fs/crowdpose'
   TEST: test
   TRAIN: trainval
   OFFSET_RADIUS: 4
@@ -71,7 +71,7 @@ MODEL:
       - SUM
       - SUM
     HEAD_HEATMAP:
-      BLOCK: OD_BASIC
+      BLOCK: BASIC
       NUM_BLOCKS: 1
       NUM_CHANNELS: 32
       DILATION_RATE: 1
@@ -83,7 +83,8 @@ MODEL:
   INIT_WEIGHTS: True
   NAME: hrnet_dekr
   NUM_JOINTS: 14
-  PRETRAINED: '../DEKR/model/imagenet/hrnet_w32-36af842e.pth'
+  PRETRAINED: 'model/imagenet/hrnet_w32-36af842e.pth'
+  LIMB_NUM_CHANNELS: 4
 TEST:
   FLIP_TEST: True
   IMAGES_PER_GPU: 1
@@ -98,11 +99,11 @@ TEST:
   DECREASE: 0.8
 RESCORE:
   VALID: True
-  MODEL_FILE: '/root/autodl-tmp/DEKR/model/rescore/final_rescore_crowd_pose_kpt.pth'
+  MODEL_FILE: 'model/rescore/final_rescore_crowd_pose_kpt.pth'
 TRAIN:
   BEGIN_EPOCH: 0
   CHECKPOINT: ''
-  END_EPOCH: 250
+  END_EPOCH: 300
   GAMMA1: 0.99
   GAMMA2: 0.0
   IMAGES_PER_GPU: 10

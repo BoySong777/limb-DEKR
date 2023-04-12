@@ -16,6 +16,7 @@ import logging
 import torch
 import torch.nn as nn
 import torchvision.ops as ops
+from .at_block import CBAMBlock
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class AdaptBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, outplanes, stride=1, 
-            downsample=None, dilation=1, deformable_groups=1):
+            downsample=None, dilation=1, deformable_groups=1, use_cbam=False):
         super(AdaptBlock, self).__init__()
         regular_matrix = torch.tensor([[-1, -1, -1, 0, 0, 0, 1, 1, 1],\
                                        [-1, 0, 1, -1 ,0 ,1 ,-1, 0, 1]])
@@ -115,6 +116,12 @@ class AdaptBlock(nn.Module):
             padding=dilation, dilation=dilation, bias=False, groups=deformable_groups)
         self.bn = nn.BatchNorm2d(outplanes, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
+        self.cbam = None
+        if use_cbam:
+            if outplanes <= 16:
+                self.cbam = CBAMBlock(outplanes, reduction=4)
+            else:
+                self.cbam = CBAMBlock(outplanes)
  
     def forward(self, x):
         residual = x
@@ -135,7 +142,9 @@ class AdaptBlock(nn.Module):
         
         if self.downsample is not None:
             residual = self.downsample(x)
- 
+        if self.cbam is not None:
+            out = self.cbam(out)
+
         out += residual
         out = self.relu(out)
  

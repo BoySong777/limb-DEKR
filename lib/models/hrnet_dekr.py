@@ -19,9 +19,7 @@ import torch.nn.functional as F
 
 from .conv_module import HighResolutionModule
 from .conv_block import BasicBlock, Bottleneck, AdaptBlock
-from .od_conv_block import BasicBlock as ODBasicBlock
-from .od_conv_block import Bottleneck as ODBottleneck
-from .odconv import ODConv2d
+from .at_block import CBAMBlock
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -29,10 +27,7 @@ logger = logging.getLogger(__name__)
 blocks_dict = {
     'BASIC': BasicBlock,
     'BOTTLENECK': Bottleneck,
-    'ADAPTIVE': AdaptBlock,
-    'OD_BASIC': ODBasicBlock,
-    'OD_BOTTLENECK': ODBottleneck
-
+    'ADAPTIVE': AdaptBlock
 }
 
 
@@ -59,12 +54,12 @@ class PoseHigherResolutionNet(nn.Module):
             num_channels = self.stages_spec.NUM_CHANNELS[i]
             transition_layer = \
                 self._make_transition_layer(num_channels_last, num_channels)
-            setattr(self, 'transition{}'.format(i+1), transition_layer)
+            setattr(self, 'transition{}'.format(i + 1), transition_layer)
 
             stage, num_channels_last = self._make_stage(
                 self.stages_spec, i, num_channels, True
             )
-            setattr(self, 'stage{}'.format(i+2), stage)
+            setattr(self, 'stage{}'.format(i + 2), stage)
 
         # build head net
         inp_channels = int(sum(self.stages_spec.NUM_CHANNELS[-1]))
@@ -72,14 +67,14 @@ class PoseHigherResolutionNet(nn.Module):
         config_offset = self.spec.HEAD_OFFSET
         self.num_joints = cfg.DATASET.NUM_JOINTS
         self.num_offset = self.num_joints * 2
-        self.num_joints_with_center = self.num_joints+1
+        self.num_joints_with_center = self.num_joints + 1
         self.offset_prekpt = config_offset['NUM_CHANNELS_PERKPT']
-        
-        offset_channels = self.num_joints*self.offset_prekpt
+
+        offset_channels = self.num_joints * self.offset_prekpt
         self.transition_heatmap = self._make_transition_for_head(
-                    inp_channels, config_heatmap['NUM_CHANNELS'])
+            inp_channels, config_heatmap['NUM_CHANNELS'])
         self.transition_offset = self._make_transition_for_head(
-                    inp_channels, offset_channels)
+            inp_channels, offset_channels, isoff=True)
         self.head_heatmap = self._make_heatmap_head(config_heatmap)
         self.offset_feature_layers, self.offset_final_layer = \
             self._make_separete_regression_head(config_offset)
@@ -92,17 +87,17 @@ class PoseHigherResolutionNet(nn.Module):
 
         self.offset_limbs_feature_layers, self.offset_limbs_final_layer = \
             self._make_limbs_separete_regression_head(config_offset)
-        # 增加一个层，用于获取肢体间相互关系
-        self.get_limb_relation_layer = self._make_layer(blocks_dict['OD_BASIC'], self.num_joints*self.offset_prekpt, 2, 1)
 
-    def _make_transition_for_head(self, inplanes, outplanes):
+
+    def _make_transition_for_head(self, inplanes, outplanes, isoff = False):
         transition_layer = [
-            # 更改第一步，改变heatmap的特征, 改Conv2d变ODConv2d
-            # nn.Conv2d(inplanes, outplanes, 1, 1, 0, bias=False),
-            ODConv2d(inplanes, outplanes, 1, 1, 0),
-            nn.BatchNorm2d(outplanes),
-            nn.ReLU(True)
+            nn.Conv2d(inplanes, outplanes, 1, 1, 0, bias=False),
+            nn.BatchNorm2d(outplanes)
         ]
+        # 给偏移量分支增加注意力
+        if isoff:
+            transition_layer.append(CBAMBlock(outplanes))
+        transition_layer.append(nn.ReLU(True))
         return nn.Sequential(*transition_layer)
 
     def _make_heatmap_head(self, layer_config):
@@ -125,7 +120,7 @@ class PoseHigherResolutionNet(nn.Module):
             padding=1 if self.spec.FINAL_CONV_KERNEL == 3 else 0
         )
         heatmap_head_layers.append(heatmap_conv)
-        
+
         return nn.ModuleList(heatmap_head_layers)
 
     def _make_separete_regression_head(self, layer_config):
@@ -135,15 +130,16 @@ class PoseHigherResolutionNet(nn.Module):
         for _ in range(self.num_joints):
             feature_conv = self._make_layer(
                 blocks_dict[layer_config['BLOCK']],
-                layer_config['NUM_CHANNELS_PERKPT'] + 2,
-                layer_config['NUM_CHANNELS_PERKPT'] + 2,
+                layer_config['NUM_CHANNELS_PERKPT'],
+                layer_config['NUM_CHANNELS_PERKPT'],
                 layer_config['NUM_BLOCKS'],
-                dilation=layer_config['DILATION_RATE']
+                dilation=layer_config['DILATION_RATE'],
+                use_cbam=True
             )
             offset_feature_layers.append(feature_conv)
 
             offset_conv = nn.Conv2d(
-                in_channels=layer_config['NUM_CHANNELS_PERKPT'] + 2,
+                in_channels=layer_config['NUM_CHANNELS_PERKPT'],
                 out_channels=2,
                 kernel_size=self.spec.FINAL_CONV_KERNEL,
                 stride=1,
@@ -171,7 +167,8 @@ class PoseHigherResolutionNet(nn.Module):
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_BLOCKS'],
-                dilation=layer_config['DILATION_RATE']
+                dilation=layer_config['DILATION_RATE'],
+                use_cbam=True
             )
             offset_limbs_feature_layers.append(feature_conv)
 
@@ -185,8 +182,9 @@ class PoseHigherResolutionNet(nn.Module):
             offset_limbs_final_layer.append(offset_conv)
 
         return nn.ModuleList(offset_limbs_feature_layers), nn.ModuleList(offset_limbs_final_layer)
+
     def _make_layer(
-            self, block, inplanes, planes, blocks, stride=1, dilation=1):
+            self, block, inplanes, planes, blocks, stride=1, dilation=1, use_cbam=False):
         downsample = None
         if stride != 1 or inplanes != planes * block.expansion:
             downsample = nn.Sequential(
@@ -196,10 +194,14 @@ class PoseHigherResolutionNet(nn.Module):
             )
 
         layers = []
-        layers.append(block(inplanes, planes, 
-                stride, downsample, dilation=dilation))
+        layers.append(block(inplanes, planes,
+                            stride, downsample, dilation=dilation))
         inplanes = planes * block.expansion
-        for _ in range(1, blocks):
+        for _ in range(1, blocks-1):
+            layers.append(block(inplanes, planes, dilation=dilation))
+        if use_cbam:
+            layers.append(block(inplanes, planes, dilation=dilation, use_cbam=True))
+        else:
             layers.append(block(inplanes, planes, dilation=dilation))
 
         return nn.Sequential(*layers)
@@ -226,10 +228,10 @@ class PoseHigherResolutionNet(nn.Module):
                     transition_layers.append(None)
             else:
                 conv3x3s = []
-                for j in range(i+1-num_branches_pre):
+                for j in range(i + 1 - num_branches_pre):
                     inchannels = num_channels_pre_layer[-1]
                     outchannels = num_channels_cur_layer[i] \
-                        if j == i-num_branches_pre else inchannels
+                        if j == i - num_branches_pre else inchannels
                     conv3x3s.append(nn.Sequential(
                         nn.Conv2d(
                             inchannels, outchannels, 3, 2, 1, bias=False),
@@ -239,9 +241,8 @@ class PoseHigherResolutionNet(nn.Module):
 
         return nn.ModuleList(transition_layers)
 
-
     def _make_stage(self, stages_spec, stage_index, num_inchannels,
-                     multi_scale_output=True):
+                    multi_scale_output=True):
         num_modules = stages_spec.NUM_MODULES[stage_index]
         num_branches = stages_spec.NUM_BRANCHES[stage_index]
         num_blocks = stages_spec.NUM_BLOCKS[stage_index]
@@ -297,7 +298,8 @@ class PoseHigherResolutionNet(nn.Module):
         locate_map = self.offset_to_loc(limbs_offset)
         # 接下来把位置值的范围调整到[-1, 1] 公式为：（x,y）*2/((w,h)-1) - 1
         param = [2.0 / (h - 1), 2.0 / (w - 1)]
-        param_tensor = torch.tensor(param).reshape(1, 2, 1, 1).repeat(1, len(self.limbs_contxet), 1, 1).cuda(non_blocking=True)
+        param_tensor = torch.tensor(param).reshape(1, 2, 1, 1).repeat(1, len(self.limbs_contxet), 1, 1).cuda(
+            non_blocking=True)
         locate_map = locate_map * param_tensor - 1.0
         point = 0
         final_offset_list = []
@@ -307,13 +309,13 @@ class PoseHigherResolutionNet(nn.Module):
             # 肢体中心点偏移量和关键点偏移量相加，得到关键点相对于人体中心点的偏移量。
             final_offset_list.append(
                 F.grid_sample(offset[:, point:point + num * 2],
-                                                             locate_map[:, idx * 2:(idx + 1) * 2].permute(0, 2, 3, 1),
-                                                             mode='bilinear', padding_mode='zeros', align_corners=None) \
-                                               + limbs_offset[:, idx * 2:(idx + 1) * 2].repeat(1, num, 1, 1)
+                              locate_map[:, idx * 2:(idx + 1) * 2].permute(0, 2, 3, 1),
+                              mode='bilinear', padding_mode='zeros', align_corners=True) \
+                + limbs_offset[:, idx * 2:(idx + 1) * 2].repeat(1, num, 1, 1)
             )
 
             point += num * 2
-        final_offset = torch.cat(final_offset_list, dim=1).view(n, int(c / 2), 2, w, h)[:, self.keypoints_restore_index]\
+        final_offset = torch.cat(final_offset_list, dim=1).view(n, int(c / 2), 2, w, h)[:, self.keypoints_restore_index] \
             .view(n, c, w, h)
         return final_offset
 
@@ -329,19 +331,19 @@ class PoseHigherResolutionNet(nn.Module):
         y_list = [x]
         for i in range(self.num_stages):
             x_list = []
-            transition = getattr(self, 'transition{}'.format(i+1))
+            transition = getattr(self, 'transition{}'.format(i + 1))
             for j in range(self.stages_spec['NUM_BRANCHES'][i]):
                 if transition[j]:
                     x_list.append(transition[j](y_list[-1]))
                 else:
                     x_list.append(y_list[j])
-            y_list = getattr(self, 'stage{}'.format(i+2))(x_list)
+            y_list = getattr(self, 'stage{}'.format(i + 2))(x_list)
 
         x0_h, x0_w = y_list[0].size(2), y_list[0].size(3)
         x = torch.cat([y_list[0], \
-            F.upsample(y_list[1], size=(x0_h, x0_w), mode='bilinear'), \
-            F.upsample(y_list[2], size=(x0_h, x0_w), mode='bilinear'), \
-            F.upsample(y_list[3], size=(x0_h, x0_w), mode='bilinear')], 1)
+                       F.upsample(y_list[1], size=(x0_h, x0_w), mode='bilinear'), \
+                       F.upsample(y_list[2], size=(x0_h, x0_w), mode='bilinear'), \
+                       F.upsample(y_list[3], size=(x0_h, x0_w), mode='bilinear')], 1)
 
         heatmap = self.head_heatmap[1](
             self.head_heatmap[0](self.transition_heatmap(x)))
@@ -358,22 +360,18 @@ class PoseHigherResolutionNet(nn.Module):
         point = 0
         # 求出肢体中心点的输出特征和偏移量
         for idx, num in enumerate(self.limbs_contxet):
-            offset_feature_list.append(self.offset_limbs_feature_layers[idx](limbs_feature[:, point:point + self.offset_prekpt * num]))
+            offset_feature_list.append(
+                self.offset_limbs_feature_layers[idx](limbs_feature[:, point:point + self.offset_prekpt * num]))
             final_limbs_offset.append(self.offset_limbs_final_layer[idx](offset_feature_list[idx]))
             point = point + self.offset_prekpt * num
         # 合并特征图
         offset_feature = torch.cat(offset_feature_list, dim=1)
 
-        # 获取肢体间相互关系
-        offset_common_feature = self.get_limb_relation_layer(offset_feature)
-
-
         for j in range(self.num_joints):
             final_offset.append(
                 self.offset_final_layer[j](
                     self.offset_feature_layers[j](
-                        torch.cat([offset_feature[:, j*self.offset_prekpt:(j+1)*self.offset_prekpt],
-                                   offset_common_feature], dim=1))))
+                        offset_feature[:, j * self.offset_prekpt:(j + 1) * self.offset_prekpt])))
         offset = torch.cat(final_offset, dim=1)
         limbs_offset = torch.cat(final_limbs_offset, dim=1)
 
@@ -411,14 +409,14 @@ class PoseHigherResolutionNet(nn.Module):
             buffers_names.add(name)
 
         if os.path.isfile(pretrained):
-            pretrained_state_dict = torch.load(pretrained, 
-                            map_location=lambda storage, loc: storage)
+            pretrained_state_dict = torch.load(pretrained,
+                                               map_location=lambda storage, loc: storage)
             logger.info('=> loading pretrained model {}'.format(pretrained))
 
             need_init_state_dict = {}
             for name, m in pretrained_state_dict.items():
                 if name.split('.')[0] in self.pretrained_layers \
-                   or self.pretrained_layers[0] == '*':
+                        or self.pretrained_layers[0] == '*':
                     if name in parameters_names or name in buffers_names:
                         if verbose:
                             logger.info(
