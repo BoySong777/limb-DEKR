@@ -65,5 +65,52 @@ class CBAMBlock(nn.Module):
         residual = x
         out = x * self.ca(x)
         out = out * self.sa(out)
-        # print("执行了CBAM:{}".format(c))
         return out + residual
+
+
+class CAtten(nn.Module):
+    def __init__(self, channel, out_channel):
+        super().__init__()
+        self.maxpool = nn.AdaptiveMaxPool2d(1)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.se = nn.Sequential(
+            nn.Conv2d(channel, out_channel, 1, bias=False),
+            nn.ReLU()
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        max_result = self.maxpool(x)
+        avg_result = self.avgpool(x)
+        max_out = self.se(max_result)
+        avg_out = self.se(avg_result)
+        output = self.sigmoid(max_out + avg_out)
+        return output
+
+
+class EFBlock(nn.Module):
+    '''
+    Feature extraction ：特征提取模块
+    in_channels:
+    '''
+    def __init__(self, in_channels, out_channels, kernel_size=7):
+        super().__init__()
+        self.c_attn = CAtten(channel=in_channels, out_channel=out_channels)
+        self.s_attn = SpatialAttention(kernel_size=kernel_size)
+        # self.atn = nn.Linear(out_channels, out_channels)
+        self.fuse_conv = nn.Conv2d(out_channels*2, out_channels, 1, 1, 0)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, y):
+        N, C, _, _ = x.size()
+        fea_param_c = self.c_attn(y)
+        # print("shape::::{}, N:{}, C:{}".format(fea_param_c.size(), N, C))
+        # fea_param_c = self.atn(fea_param_c).reshape(N, C, 1, 1)
+        out_c = x * fea_param_c
+        out_s = x * self.s_attn(out_c)
+        cond_feats = torch.cat((out_c, out_s), dim=1)
+        cond_feats = self.fuse_conv(cond_feats)
+        # 加入残差
+        cond_feats += x
+        cond_feats = self.relu(cond_feats)
+        return cond_feats
