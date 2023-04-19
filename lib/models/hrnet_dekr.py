@@ -19,7 +19,8 @@ import torch.nn.functional as F
 
 from .conv_module import HighResolutionModule
 from .conv_block import BasicBlock, Bottleneck, AdaptBlock
-from .at_block import CBAMBlock, EFBlock
+# from .gc_block import GlobalContextBlock
+from .at_block import CBAMBlock
 
 BN_MOMENTUM = 0.1
 logger = logging.getLogger(__name__)
@@ -77,8 +78,7 @@ class PoseHigherResolutionNet(nn.Module):
         offset_channels = self.num_joints * self.offset_prekpt
         self.transition_heatmap = self._make_transition_for_head(
             inp_channels, config_heatmap['NUM_CHANNELS'])
-        self.transition_offset = self._make_transition_for_head(
-            inp_channels, offset_channels, isoff=True)
+        self.transition_offset = self._make_layer(BasicBlock, inp_channels, offset_channels, 2, use_cbam=True)
         self.head_heatmap = self._make_heatmap_head(config_heatmap)
         self.offset_feature_layers, self.offset_final_layer = \
             self._make_separete_regression_head(config_offset)
@@ -87,18 +87,15 @@ class PoseHigherResolutionNet(nn.Module):
 
         self.offset_limbs_feature_layers, self.offset_limbs_final_layer = \
             self._make_limbs_separete_regression_head(config_offset)
-        self.extract_feature_layer = EFBlock(config_heatmap['NUM_CHANNELS'], inp_channels)
+        # self.extract_feature_layer = GlobalContextBlock(offset_channels, ratio=0.25)
 
 
     def _make_transition_for_head(self, inplanes, outplanes, isoff = False):
         transition_layer = [
             nn.Conv2d(inplanes, outplanes, 1, 1, 0, bias=False),
-            nn.BatchNorm2d(outplanes)
+            nn.BatchNorm2d(outplanes),
+            nn.ReLU(True)
         ]
-        # 给偏移量分支增加注意力
-        if isoff:
-            transition_layer.append(CBAMBlock(outplanes))
-        transition_layer.append(nn.ReLU(True))
         return nn.Sequential(*transition_layer)
 
     def _make_heatmap_head(self, layer_config):
@@ -134,8 +131,7 @@ class PoseHigherResolutionNet(nn.Module):
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_BLOCKS'],
-                dilation=layer_config['DILATION_RATE'],
-                use_cbam=True
+                dilation=layer_config['DILATION_RATE']
             )
             offset_feature_layers.append(feature_conv)
 
@@ -168,8 +164,7 @@ class PoseHigherResolutionNet(nn.Module):
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_CHANNELS_PERKPT'] * num,
                 layer_config['NUM_BLOCKS'],
-                dilation=layer_config['DILATION_RATE'],
-                use_cbam=True
+                dilation=layer_config['DILATION_RATE']
             )
             offset_limbs_feature_layers.append(feature_conv)
 
@@ -183,7 +178,6 @@ class PoseHigherResolutionNet(nn.Module):
             offset_limbs_final_layer.append(offset_conv)
 
         return nn.ModuleList(offset_limbs_feature_layers), nn.ModuleList(offset_limbs_final_layer)
-
     def _make_layer(
             self, block, inplanes, planes, blocks, stride=1, dilation=1, use_cbam=False):
         downsample = None
@@ -196,14 +190,10 @@ class PoseHigherResolutionNet(nn.Module):
 
         layers = []
         layers.append(block(inplanes, planes,
-                            stride, downsample, dilation=dilation))
+                stride, downsample, dilation=dilation, use_cbam=use_cbam))
         inplanes = planes * block.expansion
-        for _ in range(1, blocks-1):
-            layers.append(block(inplanes, planes, dilation=dilation))
-        if use_cbam:
-            layers.append(block(inplanes, planes, dilation=dilation, use_cbam=True))
-        else:
-            layers.append(block(inplanes, planes, dilation=dilation))
+        for _ in range(1, blocks):
+            layers.append(block(inplanes, planes, dilation=dilation, use_cbam=use_cbam))
 
         return nn.Sequential(*layers)
 
@@ -353,11 +343,11 @@ class PoseHigherResolutionNet(nn.Module):
         # 添加肢体中心点偏移量存储
         final_limbs_offset = []
 
-        pre_limbs_feature = self.extract_feature_layer(x, heatmap_feature)
+       #  pre_limbs_feature = self.extract_feature_layer(x, heatmap_feature)
         # 获取回归肢体中心点的特征
-        limbs_feature = self.transition_offset(pre_limbs_feature)
+        limbs_feature = self.transition_offset(x)
 
-
+        # limbs_feature = self.extract_feature_layer(limbs_feature)
 
         offset_feature_list = []
         point = 0
@@ -434,3 +424,4 @@ def get_pose_net(cfg, is_train, **kwargs):
         model.init_weights(cfg.MODEL.PRETRAINED, verbose=cfg.VERBOSE)
 
     return model
+

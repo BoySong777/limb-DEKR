@@ -26,17 +26,25 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, 
-            downsample=None, dilation=1):
+            downsample=None, dilation=1, use_cbam=False):
         super(BasicBlock, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride,
                                padding=dilation, bias=False, dilation=dilation)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride,
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
                                padding=dilation, bias=False, dilation=dilation)
         self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
         self.downsample = downsample
         self.stride = stride
+
+        self.cbam = None
+        if use_cbam:
+            if planes <= 16:
+                self.cbam = CBAMBlock(planes, reduction=4)
+            else:
+                self.cbam = CBAMBlock(planes)
+
 
 
     def forward(self, x):
@@ -52,6 +60,9 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
 
+        if self.cbam is not None:
+            out = self.cbam(out)
+
         out += residual
         out = self.relu(out)
 
@@ -62,7 +73,7 @@ class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, 
-            downsample=None, dilation=1):
+            downsample=None, dilation=1, use_cbam=False):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
